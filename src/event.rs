@@ -5,11 +5,11 @@ use message::MessageContent::*;
 use std::collections::BTreeMap;
 use self::Event::*;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Event {
     AddNode(Name),
     RemoveNode(Name),
-    RemoveNodeFrom(Prefix),
+    RemoveNodeFrom(Prefix), 
     //Reconnect(Name, Name)
     //Disconnect(Name, Name)
 }

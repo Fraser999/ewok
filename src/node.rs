@@ -40,6 +40,25 @@ impl fmt::Display for Node {
     }
 }
 
+impl fmt::Debug for Node {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f,
+               "Node({}): {} filtered messages;   {} valid blocks;   {} vote counts with max \
+               \"to\" blocks of {};   {} current blocks: {:#?}",
+               self.our_name,
+               self.message_filter.len(),
+               self.valid_blocks.len(),
+               self.vote_counts.len(),
+               self.vote_counts
+                   .values()
+                   .map(BTreeMap::len)
+                   .max()
+                   .unwrap(),
+               self.current_blocks.len(),
+               self.current_blocks)
+    }
+}
+
 impl Node {
     /// Create a new node which starts from a given set of valid and current blocks.
     pub fn new(name: Name, current_blocks: CurrentBlocks, params: NodeParams, step: u64) -> Self {

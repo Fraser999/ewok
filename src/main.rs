@@ -11,8 +11,8 @@ fn main() {
         max_num_nodes: 30,
         num_steps: 1150,
         max_delay: 5,
-        prob_join: 0.1,
-        prob_drop: 0.01,
+        prob_join: 0.05,
+        prob_drop: 0.05,
         drop_step: 150,
         prob_disconnect: 0.05,
         // Gives ~95% chance that a pair will reconnect within 5 steps
@@ -20,8 +20,8 @@ fn main() {
     };
 
     let node_params = NodeParams {
-        min_section_size: 4,
-        split_buffer: 0,
+        min_section_size: 8,
+        split_buffer: 1,
         join_timeout: 20,
         rmconv_timeout: 20,
         mergeconv_timeout: 20,
