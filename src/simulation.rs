@@ -53,6 +53,15 @@ mod detail {
     }
 }
 
+#[derive(Debug)]
+pub enum Phase {
+    Starting,
+    Growth,
+    Stable(since),
+    Shrinking,
+    Finishing,
+}
+
 pub struct Simulation {
     nodes: BTreeMap<Name, Node>,
     network: Network,
@@ -62,6 +71,8 @@ pub struct Simulation {
     params: SimulationParams,
     /// Parameters for nodes.
     node_params: NodeParams,
+    /// Which phase the simulation is currently in.
+    phase: Phase,
     /// Collection of disconnected pairs which should be trying to reconnect.
     disconnected: BTreeSet<DisconnectedPair>,
     /// Generator of random events.
@@ -100,6 +111,8 @@ impl Simulation {
             network,
             params,
             node_params,
+            phase: Phase::Starting,
+            phase,
             disconnected: BTreeSet::new(),
             random_events,
             event_schedule,
@@ -203,7 +216,9 @@ impl Simulation {
     pub fn generate_events(&mut self, step: u64) {
         let mut events = vec![];
         events.extend(self.event_schedule.get_events(step));
-        events.extend(self.random_events.get_events(step, &self.nodes));
+        events.extend(self.random_events
+                          .get_events(step, self.phase, &self.nodes));
+        trace!("events: {:?}", events);
 
         let mut ev_messages = vec![];
 
@@ -217,14 +232,15 @@ impl Simulation {
         self.network.send(step, ev_messages);
 
         // Kill a connection between two nodes if we're past the stabilisation threshold.
-        if step >= self.params.drop_step && do_with_probability(self.params.prob_disconnect) {
+        if step >= self.params.start_random_events_step &&
+           do_with_probability(self.params.prob_disconnect) {
             let disconnect_messages = self.disconnect_pair();
             self.network.send(step, disconnect_messages);
         }
 
         // Try to reconnect any previously-disconnected pairs if we're past the stabilisation
         // threshold. Exclude any which were disconnected in this step.
-        if step >= self.params.drop_step {
+        if step >= self.params.start_random_events_step {
             let reconnect_messages = self.reconnect_pairs();
             self.network.send(step, reconnect_messages);
         }
@@ -232,6 +248,8 @@ impl Simulation {
 
     /// Run the simulation, returning Ok iff the network was consistent upon termination.
     pub fn run(&mut self) -> Result<(), [u32; 4]> {
+        use Phase::*;
+
         let max_extra_steps = 1000;
         // TODO: Use actual max value (probably from `NodeParams`) once the RmConv rule is added.
         let max_timeout_steps = 60;
@@ -241,20 +259,21 @@ impl Simulation {
         for step in 0..(self.params.num_steps + max_extra_steps) {
             info!("-- step {} --", step);
 
-            // Generate events.
-            // We only generate events for at most `num_steps` steps, after which point
-            // we wait for the network to empty out.
-            if step < self.params.num_steps {
-                self.generate_events(step);
-            } else if self.network.queue_is_empty() {
-                if no_op_step_count > max_timeout_steps {
-                    ran_to_completion = true;
-                    break;
+            // Generate events unless we're in the finishing phase, in which case we let the event
+            // queue empty out.
+            if let Phase::Finishing = self.phase {
+                if self.network.queue_is_empty() {
+                    if no_op_step_count > max_timeout_steps {
+                        ran_to_completion = true;
+                        break;
+                    } else {
+                        no_op_step_count += 1;
+                    }
                 } else {
-                    no_op_step_count += 1;
+                    no_op_step_count = 0;
                 }
             } else {
-                no_op_step_count = 0;
+                self.generate_events(step);
             }
 
             let delivered = self.network.receive(step);
@@ -302,6 +321,8 @@ impl Simulation {
                     count => panic!("{:?}\nhas {} current blocks for own section.", node, count),
                 }
             }
+
+            self.phase = self.phase_for_next_step(step);
         }
 
         info!("-- final node states --");
@@ -314,5 +335,31 @@ impl Simulation {
 
         check_consistency(&self.nodes, self.node_params.min_section_size as usize)
             .map_err(|_| seed())
+    }
+
+    fn phase_for_next_step(&self, step: u64) -> Phase {
+        match self.phase {
+            Starting => {
+                if step >= self.params.start_random_events_step {
+                    if self.params.grow_prob_join > 0 {
+                        Growth
+                    } else {
+                        Stable
+                    }
+                } else {
+                    Starting
+                }
+            }
+            Growth => {
+                if self.nodes.len() >= self.params.grow_complete {
+                    Stable
+                } else {
+                    Growth
+                }
+            }
+            Stable => {}
+            Shrinking => {}
+            Finishing => {}
+        }
     }
 }

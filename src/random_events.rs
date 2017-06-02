@@ -5,6 +5,7 @@ use name::Name;
 use node::Node;
 use event::Event;
 use random::{random, do_with_probability};
+use simulation::Phase;
 
 pub struct RandomEvents {
     params: SimulationParams,
@@ -15,7 +16,7 @@ impl RandomEvents {
         RandomEvents { params }
     }
 
-    pub fn get_events(&self, step: u64, nodes: &BTreeMap<Name, Node>) -> Vec<Event> {
+    pub fn get_events(&self, step: u64, phase: Phase, nodes: &BTreeMap<Name, Node>) -> Vec<Event> {
         let mut events = vec![];
 
         // Random join.
@@ -24,7 +25,8 @@ impl RandomEvents {
         }
 
         // Random remove.
-        if step >= self.params.drop_step && do_with_probability(self.params.prob_drop) {
+        if step >= self.params.start_random_events_step &&
+           do_with_probability(self.params.prob_drop) {
             events.extend(self.random_remove(nodes));
         }
 
