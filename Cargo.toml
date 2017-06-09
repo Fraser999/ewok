@@ -11,6 +11,8 @@ log = "0.3"
 env_logger = "0.4"
 regex = "0.2"
 clap = "2.24"
+rusqlite = "0.12"
+tempdir = "0.3"
 
 [[bin]]
 name = "ewok"
@@ -24,3 +26,6 @@ doc = false
 
 [profile.release]
 debug = true
+
+[features]
+default = ["rusqlite/bundled"]

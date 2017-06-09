@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use rusqlite::{Connection, Error, ErrorCode};
+use tempdir::TempDir;
 use message::Message;
 use name::Name;
-
 use random::do_with_probability;
 
 /// Network model with synchronous, in-order delivery.
@@ -12,14 +15,28 @@ pub struct Network {
     prob_deliver: f64,
     /// Map from a connection between two nodes and step # to messages inserted at that step.
     messages: BTreeMap<(Name, Name), BTreeMap<u64, Vec<Message>>>,
+    /// A temporary directory used to hold database files. Automatically deleted when dropped.
+    _db_dir: TempDir,
+    /// Filter for hashes of messages we've already sent and shouldn't resend.
+    db: Connection,
 }
 
 impl Network {
     pub fn new(max_delay: u64) -> Self {
+        let _db_dir = TempDir::new("Ewok").unwrap();
+        trace!("Ewok temp dir: {:?}", _db_dir);
+        let db = Connection::open(_db_dir.path().join("ewok.sqlite")).unwrap();
+        db.execute("CREATE TABLE IF NOT EXISTS message_hashes(
+                    hash INTEGER PRIMARY KEY
+                    )",
+                     &[])
+            .unwrap();
         Network {
             max_delay,
             prob_deliver: Self::delivery_probability(max_delay),
             messages: BTreeMap::new(),
+            _db_dir,
+            db,
         }
     }
 
@@ -98,14 +115,29 @@ impl Network {
         all_deliver
     }
 
-    /// Send messages at the given step.
+    /// Send messages at the given step that haven't previously been sent.
     pub fn send(&mut self, step: u64, messages: Vec<Message>) {
         for message in messages {
-            let conn_messages = self.messages
-                .entry((message.sender, message.recipient))
-                .or_insert_with(BTreeMap::new);
-            let step_messages = conn_messages.entry(step).or_insert_with(Vec::new);
-            step_messages.push(message);
+            let mut hasher = DefaultHasher::new();
+            message.hash(&mut hasher);
+            let hash = hasher.finish() as i64;
+            let result = self.db
+                .execute("INSERT INTO message_hashes (hash) VALUES (?1)", &[&hash]);
+            match result {
+                // Message has already been sent.
+                Err(Error::SqliteFailure(error, _)) if error.code ==
+                                                       ErrorCode::ConstraintViolation &&
+                                                       error.extended_code == 1555 => {}
+                // Message needs to be sent.
+                Ok(_) => {
+                    let conn_messages = self.messages
+                        .entry((message.sender, message.recipient))
+                        .or_insert_with(BTreeMap::new);
+                    let step_messages = conn_messages.entry(step).or_insert_with(Vec::new);
+                    step_messages.push(message);
+                }
+                Err(error) => panic!("{:?}", error),
+            }
         }
     }
 

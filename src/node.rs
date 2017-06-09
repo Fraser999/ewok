@@ -9,9 +9,7 @@ use params::NodeParams;
 use split::split_blocks;
 use merge::merge_blocks;
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 use std::fmt;
 
@@ -28,8 +26,6 @@ pub struct Node {
     pub vote_counts: VoteCounts,
     /// States for peers.
     pub peer_states: PeerStates,
-    /// Filter for hashes of messages we've already sent and shouldn't resend.
-    pub message_filter: HashSet<u64>,
     /// Network configuration parameters.
     pub params: NodeParams,
     /// Step that this node was created.
@@ -45,10 +41,9 @@ impl fmt::Display for Node {
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f,
-               "Node({}): {} filtered messages;   {} valid blocks;   {} vote counts with max \
-               \"to\" blocks of {:?};   {} current blocks: {:#?}",
+               "Node({}): {} valid blocks;   {} vote counts with max \"to\" blocks of {:?};   {} \
+               current blocks: {:#?}",
                self.our_name,
-               self.message_filter.len(),
                self.valid_blocks.len(),
                self.vote_counts.len(),
                self.vote_counts.values().map(BTreeMap::len).max(),
@@ -67,7 +62,6 @@ impl Node {
             current_candidate_blocks: current_blocks,
             vote_counts: BTreeMap::new(),
             peer_states: PeerStates::new(params.clone()),
-            message_filter: HashSet::new(),
             params,
             step_created: step,
         };
@@ -283,21 +277,7 @@ impl Node {
 
         self.update_peer_states(step);
 
-        self.filter_messages(to_broadcast)
-    }
-
-    /// Remove messages that have already been sent from `messages`, and update the filter.
-    fn filter_messages(&mut self, messages: Vec<Message>) -> Vec<Message> {
-        let mut filtered = vec![];
-        for message in messages {
-            let mut hasher = DefaultHasher::new();
-            message.hash(&mut hasher);
-            let hash = hasher.finish();
-            if self.message_filter.insert(hash) {
-                filtered.push(message);
-            }
-        }
-        filtered
+        to_broadcast
     }
 
     /// Create a message with all our votes to send to a new node.
@@ -342,7 +322,7 @@ impl Node {
 
     /// Handle a message intended for us and return messages we'd like to send.
     pub fn handle_message(&mut self, message: Message, step: u64) -> Vec<Message> {
-        let to_send = match message.content {
+        match message.content {
             NodeJoined => {
                 let joining_node = message.sender;
                 debug!("{}: received join message for: {}", self, joining_node);
@@ -380,8 +360,6 @@ impl Node {
                 self.peer_states.reconnected(message.sender, step);
                 vec![]
             }
-        };
-
-        self.filter_messages(to_send)
+        }
     }
 }

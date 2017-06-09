@@ -5,6 +5,8 @@ extern crate maplit;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate rusqlite;
+extern crate tempdir;
 
 pub mod block;
 pub mod consistency;
